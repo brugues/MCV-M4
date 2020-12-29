@@ -1,6 +1,7 @@
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
+import os
 
 def line_draw(line, canv, size):
     def get_y(t):
@@ -20,10 +21,15 @@ def line_draw(line, canv, size):
     canv.line([beg, end], width=4)
 
 
-def plot_img(img, do_not_use=[0], axis=None):
+def plot_img(img, do_not_use=[0], axis=None, save=False, title=None):
     plt.figure(do_not_use[0])
     do_not_use[0] += 1
     if axis is not None:
         plt.imshow(img, extent=axis)
     else:
         plt.imshow(img)
+        
+    if save:
+        if not os.path.isdir('./outputs'):
+            os.mkdir('./outputs')
+        plt.savefig('./outputs/'+ title)
