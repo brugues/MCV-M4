@@ -179,7 +179,6 @@ def Inliers(H, points1, points2, th):
         p2 = [p2[0]/p2[2], p2[1]/p2[2]]
         p2h = [p2h[0]/p2h[2], p2h[1]/p2h[2]]
 
-        #d = np.linalg.norm(np.cross(p1,p1h))**2 + np.linalg.norm(np.cross(p2,p2h))**2
         d = (p1[0]-p1h[0])**2+(p1[1]-p1h[1])**2 + (p2[0]-p2h[0])**2+(p2[1]-p2h[1])**2
 
         if (d < th**2):
@@ -225,8 +224,6 @@ def Ransac_DLT_homography(points1, points2, th, max_it):
     inliers = best_inliers
     
     return H, inliers
-
-
 
 def optical_center(P):
     U, d, Vt = np.linalg.svd(P)
