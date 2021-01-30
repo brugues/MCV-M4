@@ -144,3 +144,27 @@ def compute_eucl_cam(F,x1, x2):
     list_cams.append(P2[ind])
 
     return list_cams
+
+
+# Function added by Team 7
+def K_R_t_from_camera_matrix(P):
+    """
+        Returns the parameters of a Camera Matrix
+
+    :param matrix: 3x4 Camera matrix
+    :return: K, R and t camera parameters
+    """
+
+    # QR factorization
+    K, R = np.linalg.qr(P[:, :3])
+    t = np.linalg.inv(K) @ P[:, 3]
+
+    # ensure det(R) = 1
+    if np.linalg.det(R) < 0:
+        R = -R
+        t = -t
+
+    # normalize K. From lecture 3 PDF, last element of K is 1.
+    K = K / K[2, 2]
+
+    return K, R, t

@@ -33,6 +33,7 @@ from scipy.optimize import least_squares
 import utils as h
 import reconstruction as rc
 
+
 class PySBA:
     """Python class for Simple Bundle Adjustment"""
 
@@ -79,7 +80,6 @@ class PySBA:
 
         return cos_theta * points + sin_theta * np.cross(v, points) + dot * (1 - cos_theta) * v
 
-
     def project(self, points, cameraArray):
         """Convert 3-D points to 2-D by projecting onto images."""
         points_proj = self.rotate(points, cameraArray[:, :3])
@@ -92,7 +92,6 @@ class PySBA:
         r = 1 + k1 * n + k2 * n ** 2
         points_proj *= (r * f)[:, np.newaxis]
         return points_proj
-
 
     def fun(self, params, n_cameras, n_points, camera_indices, point_indices, points_2d):
         """Compute residuals.
@@ -120,7 +119,6 @@ class PySBA:
 
         return A
 
-
     def optimizedParams(self, params, n_cameras, n_points):
         """
         Retrieve camera parameters and 3-D coordinates.
@@ -129,7 +127,6 @@ class PySBA:
         points_3d = params[n_cameras * 9:].reshape((n_points, 3))
 
         return camera_params, points_3d
-
 
     def bundleAdjust(self):
         """ Returns the bundle adjusted parameters, in this case the optimized
@@ -145,14 +142,68 @@ class PySBA:
         res = least_squares(self.fun, x0, jac_sparsity=A, verbose=2, x_scale='jac', ftol=1e-4, method='trf',
                             args=(numCameras, numPoints, self.cameraIndices, self.point2DIndices, self.points2D))
 
-        #params = self.optimizedParams(res.x, numCameras, numPoints, self.cameraIndices, self.point2DIndices, self.points2D)
+        # params = self.optimizedParams(res.x, numCameras, numPoints, self.cameraIndices, self.point2DIndices, self.points2D)
         params, points_3d = self.optimizedParams(res.x, numCameras, numPoints)
 
         return params, points_3d
 
 
 def adapt_format_pysba(tracks, cams):
+    tracks = np.array(tracks)
+    cams = np.array(cams)
 
-    ...
+    # We know the shape from the init method of the PySBA class
+    camera_params = np.zeros(shape=(cams.shape[0], 9))
+
+    # Iterate over the number of cameras we have (First dimension of cams gives us the number of cameras)
+    for i in range(cams.shape[0]):
+        K, R, t = rc.K_R_t_from_camera_matrix(cams[i])
+        # According to the desciption of PySBA class, we need a rotation vector and not a rotation matrix, so we use
+        # Rodrigues for the transormation
+        r, _ = cv2.Rodrigues(R)  # Returns a tuple, we just need the first value. The second element is the jacobian
+
+        # We now get the focal distance from K[0,0] and K[1,1]
+        f = (K[0, 0] + K[1, 1]) / 2
+
+        # And finally we set the 2 distortion parameters to 0, as we assume that there is no distortion
+        k1 = k2 = 0
+
+        # Add elements to the camera_params array
+        camera_params[i, 0:3] = r.reshape(3)
+        camera_params[i, 3:6] = t.reshape(3)
+        camera_params[i, 6:] = np.array([f, k1, k2])
+
+    # Iterate over the tracks objects. Each element is of the class Track, which has the following elements:
+    # Self.views
+    # Self.ref_views -> Refined self.views according to fundamental matrix F
+    # Self.pt -> Vector of 4 elements --> Point coordinates
+    # We use all this info to build the following 4 lists
+    points_3d = np.zeros(shape=(len(tracks), 3))
+    points_2d = []
+    points_2d_indices = []
+    camera_indices = []
+
+    for track_idx, track in enumerate(tracks):
+        points_3d[track_idx] = track.pt[:-1] / track.pt[-1]
+
+        # We get the keys of the views dictionary, from which we can get the cameras of each view and its 2d points
+        # Keys: 0 and 1 (cam index)
+        # Values: a 2D point (tuple)
+        for cam_index in track.views.keys():
+            points_2d.append(track.views[cam_index])
+            points_2d_indices.append(track_idx)
+            camera_indices.append(cam_index)
+    
+    points_2d = np.array(points_2d)
+    points_2d_indices = np.array(points_2d_indices)
+    camera_indices = np.array(camera_indices)
+
+    # For debug purposes
+    if h.debug:
+        print("camera_params", camera_params.shape)
+        print("points_3d", points_3d.shape)
+        print("points_2d", points_2d.shape)
+        print("points_2d_indices", points_2d_indices.shape)
+        print("camera_indices", camera_indices.shape)
 
     return camera_params, points_3d, points_2d, camera_indices, points_2d_indices
