@@ -71,10 +71,19 @@ def compute_reproj_error(X, P1, P2, xr1, xr2):
 
 
 def transform(aff_hom, Xprj, cams_pr):
-    # Algorithm 19.2 of MVG
+    # Algorithm 19.2 of MVG: 19.5 A stratified solution (page 479)
 
-    ...
+#     pinf = aff_hom[-1,:-1]
+#     A = cams_pr[1][:,:-1]
+#     a = cams_pr[1][:,-1]
 
+#     inf_hom = A - a@pinf.T
+    
+    Xaff = aff_hom@Xprj
+    Xaff = Xaff/Xaff[-1,:]
+    
+    cams_aff = [cam_pri@np.linalg.inv(aff_hom) for cam_pri in cams_pr]
+    
     return Xaff, cams_aff
 
 
