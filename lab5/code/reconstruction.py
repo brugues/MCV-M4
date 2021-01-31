@@ -146,24 +146,53 @@ def compute_eucl_cam(F,x1, x2):
 
 
 # Function added by Team 7
-def K_R_t_from_camera_matrix(P):
+def K_R_t_from_camera_matrix(P, method='qr'):
     """
         Returns the parameters of a Camera Matrix
 
     :param matrix: 3x4 Camera matrix
+    :param method: qr or skew
     :return: K, R and t camera parameters
     """
 
-    # QR factorization
-    K, R = np.linalg.qr(P[:, :3])
-    t = np.linalg.inv(K) @ P[:, 3]
+    # QR Decomposition
+    if method=='qr':
+        # QR factorization
+        R, K = np.linalg.qr(P[:, :3])
 
-    # ensure det(R) = 1
-    if np.linalg.det(R) < 0:
-        R = -R
-        t = -t
+        # Check that diagonal elements of K are positive
+        T = np.diag(np.sign(np.diag(K)))
+        K = K @ T
+        R = T @ R
 
-    # normalize K. From lecture 3 PDF, last element of K is 1.
-    K = K / K[2, 2]
+        t = np.linalg.inv(K) @ P[:, 3]
 
-    return K, R, t
+        # Make sure that determinant of R is 1
+        if np.linalg.det(R) < 0:
+            R = -R
+            t = -t
+
+        # normalize K. From lecture 3 PDF, last element of K is 1.
+        K = K / K[2, 2]
+
+        return K, R, t
+
+    # Assume cameras with 0 skew
+    elif method=='skew':
+        Paux = P[:, :3]
+        A = Paux @ Paux.T
+        A = A / A[2, 2]
+
+        K = np.array([[np.sqrt((A[0,0]-A[0,2])**2), 0, 0],
+                       [0, np.sqrt((A[1,1]-A[1,2])**2), 0],
+                       [A[0,2], A[1,2], 1]])
+
+        Rt = np.linalg.inv(K) @ P
+
+        R = Rt[:, :3]
+        t = Rt[:, 3]
+
+        return K, R, t
+    else:
+        raise(NameError)
+

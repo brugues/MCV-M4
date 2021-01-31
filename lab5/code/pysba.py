@@ -157,7 +157,7 @@ def adapt_format_pysba(tracks, cams):
 
     # Iterate over the number of cameras we have (First dimension of cams gives us the number of cameras)
     for i in range(cams.shape[0]):
-        K, R, t = rc.K_R_t_from_camera_matrix(cams[i])
+        K, R, t = rc.K_R_t_from_camera_matrix(cams[i], method='qr')
         # According to the desciption of PySBA class, we need a rotation vector and not a rotation matrix, so we use
         # Rodrigues for the transormation
         r, _ = cv2.Rodrigues(R)  # Returns a tuple, we just need the first value. The second element is the jacobian

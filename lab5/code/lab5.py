@@ -23,7 +23,7 @@ import vps as vp
 import autocalibration as ac
 import reconstruction as rc
 
-with_intrinsics = True
+with_intrinsics = False
 
 def main(argv):
     # usage
@@ -185,6 +185,7 @@ def main(argv):
             
             # TODO compute metric reprojection error (reuse your code)
             error_euc = rc.compute_reproj_error(Xeuc, cams_euc[i-1], cams_euc[i], xr1, xr2)
+            print(Xeuc.shape)
             if h.debug > 0:
                 print("    Euclidean reprojection error:", error_euc)
 
