@@ -1,10 +1,12 @@
 import cv2
 import numpy as np
+import scipy
 
 import utils as h
 import maths as mth
 
 from scipy import optimize as opt
+import random
 
 
 def compute_proj_camera(F, i):
@@ -64,32 +66,122 @@ def compute_reproj_error(X, P1, P2, xr1, xr2):
 
     x1est = euclid(x1est.T).T
     x2est = euclid(x2est.T).T
-    
-    error = np.sum(np.sum(xr1-x1est)**2 + np.sum(xr2-x2est)**2)
+
+    error = np.sum(np.sum(xr1 - x1est) ** 2 + np.sum(xr2 - x2est) ** 2)
 
     return error
 
 
 def transform(aff_hom, Xprj, cams_pr):
-    # Algorithm 19.2 of MVG: step (i) (page 479) 
+    # Algorithm 19.2 of MVG: step (i) (page 479)
     
     Xaff = aff_hom@Xprj
     Xaff = Xaff/Xaff[-1,:]
     
     cams_aff = [cam_pri@np.linalg.inv(aff_hom) for cam_pri in cams_pr]
+    
+    #     Xaff = np.linalg.inv(aff_hom)@Xprj
+    #     Xaff = Xaff/Xaff[-1,:]
 
-#     Xaff = np.linalg.inv(aff_hom)@Xprj
-#     Xaff = Xaff/Xaff[-1,:]
-    
-#     cams_aff = [cam_pri@aff_hom for cam_pri in cams_pr]
-    
+    #     cams_aff = [cam_pri@aff_hom for cam_pri in cams_pr]
+
     return Xaff, cams_aff
+
+
+# Function added by Team 7
+def normalize_points(points, dim='2d'):
+    if dim == '2d':
+        points = points / points[2]
+
+        # Centroid of given points
+        points_centroid = np.empty(shape=(2,))
+        points_centroid[0] = np.mean(points[0, :])
+        points_centroid[1] = np.mean(points[1, :])
+
+        # Mean distance to origin
+        points_origin = np.empty(shape=(2, points.shape[1]))
+        points_origin[0, :] = points[0, :] - points_centroid[0]
+        points_origin[1, :] = points[1, :] - points_centroid[1]
+        distances = np.sqrt(points_origin[0, :] ** 2 + points_origin[1, :] ** 2)
+        mean_d = np.mean(distances)
+
+        # Scaling factor
+        s = np.sqrt(2) / mean_d
+
+        # Translation factor
+        t = [-s * points_centroid[0], -s * points_centroid[1]]
+        T = np.array([[s, 0, t[0]],
+                      [0, s, t[1]],
+                      [0, 0, 1]])
+
+        points_norm = T @ points
+    elif dim == '3d':
+        points = points / points[3]
+
+        # Centroid of given points
+        points_centroid = np.empty(shape=(3,))
+        points_centroid[0] = np.mean(points[0, :])
+        points_centroid[1] = np.mean(points[1, :])
+        points_centroid[2] = np.mean(points[2, :])
+
+        # Mean distance to origin
+        points_origin = np.empty(shape=(3, points.shape[1]))
+        points_origin[0, :] = points[0, :] - points_centroid[0]
+        points_origin[1, :] = points[1, :] - points_centroid[1]
+        points_origin[2, :] = points[1, :] - points_centroid[2]
+        distances = np.sqrt(points_origin[0, :] ** 2 + points_origin[1, :] ** 2)
+        mean_d = np.mean(distances)
+
+        # Scaling factor
+        s = np.sqrt(3) / mean_d
+
+        # Translation factor
+        t = [-s * points_centroid[0], -s * points_centroid[1], -s * points_centroid[2]]
+        T = np.array([[s, 0, 0, t[0]],
+                      [0, s, 0, t[1]],
+                      [0, 0, s, t[2]],
+                      [0, 0, 0, 1]])
+
+        points_norm = T @ points
+    else:
+        raise NameError
+
+    return points_norm, T
 
 
 def resection(tracks, i):
     # extract 3D-2D correspondences from tracks
-    
-    ...
+    points_2d = []
+    points_3d = []
+
+    for track in tracks:
+        # Some points have the third coordinate as 0. Some points don't appear in the 3rd camera
+        if i in track.views.keys() and track.pt[3] != 0:
+            points_2d.append((track.views[i]))
+            points_3d.append(track.pt.T)
+
+    points_2d = homog(np.array(points_2d)).T
+    points_3d = np.array(points_3d).T
+
+    points_2d, T2d = normalize_points(points_2d, dim='2d')
+    points_3d, T3d = normalize_points(points_3d, dim='3d')
+
+    # Apply DLT algorithm to estimate P. We need 6 pairs of points, so that we have 12 equations
+    indices = random.sample(range(1, points_2d.shape[1]), 6)
+    A = np.zeros(shape=(len(indices)*2, 12))
+    for k, idx in enumerate(indices):
+        X = points_3d[:, idx]
+        x = points_2d[:, idx]
+
+        A[2*k, :] = np.concatenate((np.zeros(shape=4), -x[2] * X, x[1] * X))
+        A[2*k+1, :] = np.concatenate((x[2] * X, np.zeros(shape=4), -x[0] * X))
+
+    U, D, VT = np.linalg.svd(A)
+    P = VT[-1, :].reshape(3, 4)
+    P = T2d.T @ P @ T3d  # Denormalization
+    P = P / P[2, 3]
+
+    print(P)
 
     return P
 
@@ -99,29 +191,29 @@ def homog(x):
 def euclid(x):
     return x[:, :-1] / x[:, [-1]]
 
-def compute_eucl_cam(F,x1, x2):
+def compute_eucl_cam(F, x1, x2):
 
     K = np.array([[2362.12, 0, 1520.69], [0, 2366.12, 1006.81], [0, 0, 1]])
     E = K.T @ F @ K
 
     # camera projection matrix for the first camera
-    P1 = K @ np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0]])
+    P1 = K @ np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]])
 
     # make sure E is rank 2
-    U,S,V = np.linalg.svd(E)
-    if np.linalg.det(np.dot(U,V))<0:
+    U, S, V = np.linalg.svd(E)
+    if np.linalg.det(np.dot(U, V)) < 0:
         V = -V
-    E = np.dot(U,np.dot(np.diag([1,1,0]),V))    
-    
+    E = np.dot(U, np.dot(np.diag([1, 1, 0]), V))
+
     # create matrices (Hartley p 258)
-    Z = mth.skew([0,0,-1])
-    W = np.array([[0,-1,0],[1,0,0],[0,0,1]])
-    
+    Z = mth.skew([0, 0, -1])
+    W = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
+
     # return all four solutions
-    P2 = [np.vstack((np.dot(U,np.dot(W,V)).T,U[:,2])).T,
-             np.vstack((np.dot(U,np.dot(W,V)).T,-U[:,2])).T,
-            np.vstack((np.dot(U,np.dot(W.T,V)).T,U[:,2])).T,
-            np.vstack((np.dot(U,np.dot(W.T,V)).T,-U[:,2])).T]
+    P2 = [np.vstack((np.dot(U, np.dot(W, V)).T, U[:, 2])).T,
+          np.vstack((np.dot(U, np.dot(W, V)).T, -U[:, 2])).T,
+          np.vstack((np.dot(U, np.dot(W.T, V)).T, U[:, 2])).T,
+          np.vstack((np.dot(U, np.dot(W.T, V)).T, -U[:, 2])).T]
 
     ind = 0
     maxres = 0
@@ -132,7 +224,7 @@ def compute_eucl_cam(F,x1, x2):
         # the sign of the depth is the 3rd value of the image point after projecting back to the image
         d1 = np.dot(P1, homog_3D)[2]
         d2 = np.dot(P2[i], homog_3D)[2]
-            
+
         if sum(d1 > 0) + sum(d2 < 0) > maxres:
             maxres = sum(d1 > 0) + sum(d2 < 0)
             ind = i
@@ -146,24 +238,52 @@ def compute_eucl_cam(F,x1, x2):
 
 
 # Function added by Team 7
-def K_R_t_from_camera_matrix(P):
+def K_R_t_from_camera_matrix(P, method='qr'):
     """
         Returns the parameters of a Camera Matrix
 
     :param matrix: 3x4 Camera matrix
+    :param method: qr or skew
     :return: K, R and t camera parameters
     """
 
-    # QR factorization
-    K, R = np.linalg.qr(P[:, :3])
-    t = np.linalg.inv(K) @ P[:, 3]
+    # QR Decomposition
+    if method == 'qr':
+        # QR factorization
+        R, K = np.linalg.qr(P[:, :3])
 
-    # ensure det(R) = 1
-    if np.linalg.det(R) < 0:
-        R = -R
-        t = -t
+        # Check that diagonal elements of K are positive
+        T = np.diag(np.sign(np.diag(K)))
+        K = K @ T
+        R = T @ R
 
-    # normalize K. From lecture 3 PDF, last element of K is 1.
-    K = K / K[2, 2]
+        t = np.linalg.inv(K) @ P[:, 3]
 
-    return K, R, t
+        # Make sure that determinant of R is 1
+        if np.linalg.det(R) < 0:
+            R = -R
+            t = -t
+
+        # normalize K. From lecture 3 PDF, last element of K is 1.
+        K = K / K[2, 2]
+
+        return K, R, t
+
+    # Assume cameras with 0 skew
+    elif method == 'skew':
+        Paux = P[:, :3]
+        A = Paux @ Paux.T
+        A = A / A[2, 2]
+
+        K = np.array([[np.sqrt((A[0, 0] - A[0, 2]) ** 2), 0, 0],
+                      [0, np.sqrt((A[1, 1] - A[1, 2]) ** 2), 0],
+                      [A[0, 2], A[1, 2], 1]])
+
+        Rt = np.linalg.inv(K) @ P
+
+        R = Rt[:, :3]
+        t = Rt[:, 3]
+
+        return K, R, t
+    else:
+        raise (NameError)
