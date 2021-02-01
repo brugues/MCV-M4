@@ -152,7 +152,61 @@ class PySBA:
 
 
 def adapt_format_pysba(tracks, cams):
+    tracks = np.array(tracks)
+    cams = np.array(cams)
 
-    ...
+    # We know the shape from the init method of the PySBA class
+    camera_params = np.zeros(shape=(cams.shape[0], 9))
+
+    # Iterate over the number of cameras we have (First dimension of cams gives us the number of cameras)
+    for i in range(cams.shape[0]):
+        K, R, t = rc.K_R_t_from_camera_matrix(cams[i])
+        # According to the desciption of PySBA class, we need a rotation vector and not a rotation matrix, so we use
+        # Rodrigues for the transormation
+        r, _ = cv2.Rodrigues(R)  # Returns a tuple, we just need the first value. The second element is the jacobian
+
+        # We now get the focal distance from K[0,0] and K[1,1]
+        f = (K[0, 0] + K[1, 1]) / 2
+
+        # And finally we set the 2 distortion parameters to 0, as we assume that there is no distortion
+        k1 = k2 = 0
+
+        # Add elements to the camera_params array
+        camera_params[i, 0:3] = r.reshape(3)
+        camera_params[i, 3:6] = t.reshape(3)
+        camera_params[i, 6:] = np.array([f, k1, k2])
+
+    # Iterate over the tracks objects. Each element is of the class Track, which has the following elements:
+    # Self.views
+    # Self.ref_views -> Refined self.views according to fundamental matrix F
+    # Self.pt -> Vector of 4 elements --> Point coordinates
+    # We use all this info to build the following 4 lists
+    points_3d = np.zeros(shape=(len(tracks), 3))
+    points_2d = []
+    points_2d_indices = []
+    camera_indices = []
+
+    for track_idx, track in enumerate(tracks):
+        points_3d[track_idx] = track.pt[:-1] / track.pt[-1]
+
+        # We get the keys of the views dictionary, from which we can get the cameras of each view and its 2d points
+        # Keys: 0 and 1 (cam index)
+        # Values: a 2D point (tuple)
+        for cam_index in track.views.keys():
+            points_2d.append(track.views[cam_index])
+            points_2d_indices.append(track_idx)
+            camera_indices.append(cam_index)
+    
+    points_2d = np.array(points_2d)
+    points_2d_indices = np.array(points_2d_indices)
+    camera_indices = np.array(camera_indices)
+
+    # For debug purposes
+    if h.debug:
+        print("camera_params", camera_params.shape)
+        print("points_3d", points_3d.shape)
+        print("points_2d", points_2d.shape)
+        print("points_2d_indices", points_2d_indices.shape)
+        print("camera_indices", camera_indices.shape)
 
     return camera_params, points_3d, points_2d, camera_indices, points_2d_indices

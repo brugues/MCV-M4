@@ -71,18 +71,17 @@ def compute_reproj_error(X, P1, P2, xr1, xr2):
 
 
 def transform(aff_hom, Xprj, cams_pr):
-    # Algorithm 19.2 of MVG: 19.5 A stratified solution (page 479)
-
-#     pinf = aff_hom[-1,:-1]
-#     A = cams_pr[1][:,:-1]
-#     a = cams_pr[1][:,-1]
-
-#     inf_hom = A - a@pinf.T
+    # Algorithm 19.2 of MVG: step (i) (page 479) 
     
     Xaff = aff_hom@Xprj
     Xaff = Xaff/Xaff[-1,:]
     
     cams_aff = [cam_pri@np.linalg.inv(aff_hom) for cam_pri in cams_pr]
+
+#     Xaff = np.linalg.inv(aff_hom)@Xprj
+#     Xaff = Xaff/Xaff[-1,:]
+    
+#     cams_aff = [cam_pri@aff_hom for cam_pri in cams_pr]
     
     return Xaff, cams_aff
 
@@ -144,3 +143,27 @@ def compute_eucl_cam(F,x1, x2):
     list_cams.append(P2[ind])
 
     return list_cams
+
+
+# Function added by Team 7
+def K_R_t_from_camera_matrix(P):
+    """
+        Returns the parameters of a Camera Matrix
+
+    :param matrix: 3x4 Camera matrix
+    :return: K, R and t camera parameters
+    """
+
+    # QR factorization
+    K, R = np.linalg.qr(P[:, :3])
+    t = np.linalg.inv(K) @ P[:, 3]
+
+    # ensure det(R) = 1
+    if np.linalg.det(R) < 0:
+        R = -R
+        t = -t
+
+    # normalize K. From lecture 3 PDF, last element of K is 1.
+    K = K / K[2, 2]
+
+    return K, R, t
