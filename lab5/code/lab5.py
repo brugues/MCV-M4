@@ -23,6 +23,10 @@ import vps as vp
 import autocalibration as ac
 import reconstruction as rc
 
+import plotly.graph_objects as go
+# our own utility functions
+import team7_utils as ut
+
 with_intrinsics = False
 
 def main(argv):
@@ -45,6 +49,10 @@ def main(argv):
     Xaff = []        # list of affine 3d points
     Xeuc = []        # list of euclidean 3d points
 
+    descriptor = 'orb'
+    if h.debug >= 0:
+        print("Using", descriptor, "descriptor")
+
     # Get number of images to process
     n = int(argv[1]) #Modify this number as you move along in the lab
     for i in range(0, n):
@@ -56,7 +64,10 @@ def main(argv):
         imgs_c.append(h.read_image_colour(i))
 
         # find features
-        feati = mt.find_features_orb(imgs[i], i)
+        if descriptor == 'orb':
+            feati = mt.find_features_orb(imgs[i], i)
+        else:
+            feati = mt.find_features_sift(imgs[i], i)
         feats.append(feati)
 
         if i == 0:
@@ -69,26 +80,41 @@ def main(argv):
             for prev in range(0, i):  
                 if h.debug >= 0:
                     print("  Matching images", prev, "and", i, "for obtaining tracks")
+
                 # match features
-                m_ij = mt.match_features_hamming(feats[prev][1], feats[i][1], prev, i)
+                if descriptor == 'orb':
+                    m_ij = mt.match_features_hamming(feats[prev][1], feats[i][1], prev, i)
 
-                # inliers
-                x1 = []
-                x2 = []
+                    # inliers
+                    x1 = []
+                    x2 = []
 
-                for m in m_ij:
-                    x1.append([feats[prev][0][m.queryIdx].pt[0], feats[prev][0][m.queryIdx].pt[1], 1])
-                    x2.append([feats[i][0][m.trainIdx].pt[0], feats[i][0][m.trainIdx].pt[1], 1])
-            
-                x1 = np.asarray(x1)
-                x2 = np.asarray(x2)
-                
+                    for m in m_ij:
+                        x1.append([feats[prev][0][m.queryIdx].pt[0], feats[prev][0][m.queryIdx].pt[1], 1])
+                        x2.append([feats[i][0][m.trainIdx].pt[0], feats[i][0][m.trainIdx].pt[1], 1])
+
+                    x1 = np.asarray(x1)
+                    x2 = np.asarray(x2)
+
+                else:
+                    m_ij = mt.match_features_kdtree(feats[prev][1], feats[i][1], prev, i)
+                    x1, x2, _, _ = mt.filter_matches(feats[prev][0], feats[i][0], m_ij, prev, i)
+
+                    x1 = fd.make_homogeneous(x1)
+                    x2 = fd.make_homogeneous(x2)
+
                 # find fundamental matrix
                 F, inliers = fd.compute_fundamental_robust(m_ij, x1, x2)
 
                 if h.debug_display:
-                    img_ij = cv2.drawMatches(imgs[prev],feats[prev][0],\
-                        imgs[i],feats[i][0],inliers,None,flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+                    if descriptor == 'orb':
+                        img_ij = cv2.drawMatches(imgs[prev],feats[prev][0],
+                                                 imgs[i],feats[i][0],inliers,None,
+                                                 flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+                    else:
+                        img_ij = cv2.drawMatchesKnn(imgs[prev], feats[prev][0],
+                                                    imgs[i], feats[i][0], inliers, None,
+                                                    flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
                     plt.imshow(img_ij)
                     fig = matplotlib.pyplot.gcf()
                     fig.set_size_inches(18.5, 10.5)
@@ -142,6 +168,13 @@ def main(argv):
 
             if h.debug_display:
                 h.display_3d_points(Xprj.T[:, :3], x1, imgs_c[i])
+
+                # 3d plot
+                fig = go.Figure()
+                # ut.plot_camera(cams_pr[i-1], imgs[i-1].shape, fig, "camera{0}".format(1))
+                # ut.plot_camera(cams_pr[i], imgs[i].shape, fig, "camera{0}".format(1))
+                ut.display_3d_points_go(Xprj.T[:, :3], x1, imgs_c[i], fig)
+                fig.show()
             
             # Affine rectification
             vps.append(vp.estimate_vps(imgs[i]))
@@ -165,6 +198,13 @@ def main(argv):
 
             if h.debug_display:
                 h.display_3d_points(Xaff.T[:, :3], x1, imgs_c[i])
+
+                # 3d plot
+                fig = go.Figure()
+                # ut.plot_camera(cams_aff[i-1], imgs[i-1].shape, fig, "camera{0}".format(1))
+                # ut.plot_camera(cams_aff[i], imgs[i].shape, fig, "camera{0}".format(1))
+                ut.display_3d_points_go(Xaff.T[:, :3], x1, imgs_c[i], fig)
+                fig.show()
 
             # Metric rectification
             # TODO Perform Metric rectification. First compute the transforming
@@ -191,6 +231,13 @@ def main(argv):
 
             if h.debug_display:
                 h.display_3d_points(Xeuc.T[:, :3], x1, imgs_c[i])
+
+                # 3d plot
+                fig = go.Figure()
+                # ut.plot_camera(cams_euc[i-1], imgs[i-1].shape, fig, "camera{0}".format(1))
+                # ut.plot_camera(cams_euc[i], imgs[i].shape, fig, "camera{0}".format(1))
+                ut.display_3d_points_go(Xeuc.T[:, :3], x1, imgs_c[i], fig)
+                fig.show()
 
             # Bundle Adjustment
             # TODO Adapt cameras and 3D points to PySBA format
