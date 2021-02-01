@@ -18,8 +18,8 @@ debug = 1
 if debug > 2:
     np.set_printoptions(threshold=sys.maxsize)  # print full arrays
 
-# debug_display = False
-debug_display = True
+debug_display = False
+# debug_display = True
 normalise = True  # activate coordinate normalisation
 opencv = True  # whether use opencv or matplot to display images
 path_imgs = '../Data/'

@@ -7,7 +7,7 @@ import maths as mth
 
 from scipy import optimize as opt
 import random
-
+from scipy.optimize import least_squares
 
 def compute_proj_camera(F, i):
     # Result 9.15 of MVG (v = 0, lambda = 1). It assumes P1 = [I|0]
@@ -149,6 +149,20 @@ def normalize_points(points, dim='2d'):
     return points_norm, T
 
 
+def geometric_error_terms(variables, data_points):
+    points_2d, points_3d = data_points
+    # camera projection matrix
+    P = variables.reshape(3, 4)
+
+    # project 3d points to the image space
+    points_2d_h = P @ points_3d
+    points_2d_h = points_2d_h[:2, :] / points_2d_h[2, :]
+
+    # return the vector of residuals as the geometric error (without squaring the terms, as
+    # the function 'least squares' constructs the cost function as a sum of squares of the residuals)
+    return (points_2d - points_2d_h).flatten()
+
+
 def resection(tracks, i):
     # extract 3D-2D correspondences from tracks
     points_2d = []
@@ -177,8 +191,11 @@ def resection(tracks, i):
         A[2*k+1, :] = np.concatenate((x[2] * X, np.zeros(shape=4), -x[0] * X))
 
     U, D, VT = np.linalg.svd(A)
-    P = VT[-1, :].reshape(3, 4)
-    P = T2d.T @ P @ T3d  # Denormalization
+    P0 = VT[-1, :].reshape(3, 4)
+
+    result = least_squares(geometric_error_terms, P0.flatten(), method='lm', args=([[points_2d[:2,:], points_3d]]))
+
+    P = T2d.T @ result.x[:].reshape(3,4) @ T3d  # Denormalization
     P = P / P[2, 3]
 
     print(P)

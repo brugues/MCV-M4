@@ -49,7 +49,7 @@ def main(argv):
     Xaff = []        # list of affine 3d points
     Xeuc = []        # list of euclidean 3d points
 
-    descriptor = 'orb'
+    descriptor = 'sift'
     if h.debug >= 0:
         print("Using", descriptor, "descriptor")
 
@@ -142,7 +142,6 @@ def main(argv):
 
             # compute projective cameras to use in projective reconstruction
             if i == 1:
-                # TODO Compute the projective camera given F, according to
                 # Result 9.15 of MVG (v = 0, lambda = 1).
                 cams_pr.append(rc.compute_proj_camera(F, i))
             else:
