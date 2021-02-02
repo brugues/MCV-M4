@@ -49,12 +49,20 @@ def main(argv):
     Xaff = []        # list of affine 3d points
     Xeuc = []        # list of euclidean 3d points
 
-    descriptor = 'sift'
+    # flag to use guided to search more matches from the initial outliers
+    guided_matching = True
+
+    # descriptor (orb or sift)
+    descriptor = 'orb'
+
+    # to create 3D plots using plotly.graph_objects
+    debug_go = False
+
     if h.debug >= 0:
         print("Using", descriptor, "descriptor")
 
     # Get number of images to process
-    n = int(argv[1]) #Modify this number as you move along in the lab
+    n = int(argv[1])
     for i in range(0, n):
         if h.debug >= 0:
             print("Processing image", i, "of sequence")
@@ -96,15 +104,37 @@ def main(argv):
                     x1 = np.asarray(x1)
                     x2 = np.asarray(x2)
 
-                else:
+                elif descriptor == 'sift':
                     m_ij = mt.match_features_kdtree(feats[prev][1], feats[i][1], prev, i)
-                    x1, x2, _, _ = mt.filter_matches(feats[prev][0], feats[i][0], m_ij, prev, i)
+                    x1, x2, outl1, outl2 = mt.filter_matches(feats[prev][0], feats[i][0], m_ij, prev, i)
 
                     x1 = fd.make_homogeneous(x1)
                     x2 = fd.make_homogeneous(x2)
 
+                else:
+                    raise (NameError)
+
                 # find fundamental matrix
                 F, inliers = fd.compute_fundamental_robust(m_ij, x1, x2)
+
+                # OPTIONAL: if we're using SIFT descriptor and match_features_kdtree, we get the outliers (outl1 and
+                # outl2) and we can use them to try to find more matches using the estimated F
+                # This idea comes from MVG, algorithm 11.4 (page 291): step (v), named GUIDED MATCHING
+                if guided_matching and descriptor == 'sift':
+
+                    # notice that search_more_matches returns also the outliers that are still outliers (still_outl1,
+                    # still_outl2), so we could use them again in an iterative way to search more matches (until no
+                    # outliers are returned)
+                    x1_new, x2_new, still_outl1, still_outl2 = fd.search_more_matches(outl1, outl2, F)
+
+                    x1_new = fd.make_homogeneous(x1_new)
+                    x2_new = fd.make_homogeneous(x2_new)
+
+                    # concatenate our initial matches with the new ones
+                    x1 = np.concatenate((x1, x1_new), axis=0)
+                    x2 = np.concatenate((x2, x2_new), axis=0)
+
+                    print(f'  Added {x1_new.shape[0]} matches using the guided matched method')
 
                 if h.debug_display:
                     if descriptor == 'orb':
@@ -145,7 +175,7 @@ def main(argv):
                 # Result 9.15 of MVG (v = 0, lambda = 1).
                 cams_pr.append(rc.compute_proj_camera(F, i))
             else:
-                # OPTIONAL Compute resection as in MVG, Alg 7.1
+                # OPTIONAL: resection of the cameras (COMPLETED, check rc.resection())
                 cams_pr.append(rc.resection(tracks, i))
                 if h.debug >= 0:
                     print("  Resection of camera", i, "performed")
@@ -155,12 +185,12 @@ def main(argv):
             if h.debug >= 0:
                 print('  Projective reconstruction estimated')
 
-            # Add estimated 3d projective points to tracks
+            # add estimated 3d projective points to tracks
             tk.add_pts_tracks(Xprj, x1, x2, i-1, i, tracks, hs_vs)
             if h.debug >= 0:
                 print('  Projective 3D points added to tracks')
 
-            # TODO compute projective reprojection error
+            # compute projective reprojection error
             error_prj = rc.compute_reproj_error(Xprj, cams_pr[i-1], cams_pr[i], xr1, xr2)
             if h.debug > 0:
                 print("    Projective reprojection error:", error_prj)
@@ -169,28 +199,24 @@ def main(argv):
                 h.display_3d_points(Xprj.T[:, :3], x1, imgs_c[i])
 
                 # 3d plot
-                fig = go.Figure()
-                # ut.plot_camera(cams_pr[i-1], imgs[i-1].shape, fig, "camera{0}".format(1))
-                # ut.plot_camera(cams_pr[i], imgs[i].shape, fig, "camera{0}".format(1))
-                ut.display_3d_points_go(Xprj.T[:, :3], x1, imgs_c[i], fig)
-                fig.show()
+                if debug_go:
+                    fig = go.Figure()
+                    ut.display_3d_points_go(Xprj.T[:, :3], x1, imgs_c[i], fig)
+                    fig.show()
             
-            # Affine rectification
+            # affine rectification
             vps.append(vp.estimate_vps(imgs[i]))
-            # TODO Estimate homography that makes an affine rectification
-            # With the vanishing points, the plane at the infinity is computed. 
-            # Then the affine homography is built with the coordinates of the infinity plane
             aff_hom = ac.estimate_aff_hom([cams_pr[i-1], cams_pr[i]], [vps[i-1], vps[i]])
 
-            # TODO Transform 3D points and cameras to affine space
+            # transform 3D points and cameras to affine space
             Xaff, cams_aff = rc.transform(aff_hom, Xprj, cams_pr)
 
-            # Add estimated 3d affine points to tracks (reuse your code)
+            # add estimated 3d affine points to tracks
             tk.add_pts_tracks(Xaff, x1, x2, i-1, i, tracks, hs_vs)
             if h.debug >= 0:
                 print('  Affine 3D points added to tracks')
             
-            # TODO compute affine reprojection error (reuse your code)
+            # compute affine reprojection error
             error_aff = rc.compute_reproj_error(Xaff, cams_aff[i-1], cams_aff[i], xr1, xr2)
             if h.debug > 0:
                 print("    Affine reprojection error:", error_aff)
@@ -199,17 +225,12 @@ def main(argv):
                 h.display_3d_points(Xaff.T[:, :3], x1, imgs_c[i])
 
                 # 3d plot
-                fig = go.Figure()
-                # ut.plot_camera(cams_aff[i-1], imgs[i-1].shape, fig, "camera{0}".format(1))
-                # ut.plot_camera(cams_aff[i], imgs[i].shape, fig, "camera{0}".format(1))
-                ut.display_3d_points_go(Xaff.T[:, :3], x1, imgs_c[i], fig)
-                fig.show()
+                if debug_go:
+                    fig = go.Figure()
+                    ut.display_3d_points_go(Xaff.T[:, :3], x1, imgs_c[i], fig)
+                    fig.show()
 
-            # Metric rectification
-            # TODO Perform Metric rectification. First compute the transforming
-            # homography from vanishing points and the camera constrains skew = 0,
-            # squared pixels. Then perform the transformation to Euclidean space
-            # (reuse your code)
+            # metric rectification
             if i == 1 and with_intrinsics:
                 cams_euc = rc.compute_eucl_cam(F, x1, x2)
                 Xeuc = rc.estimate_3d_points_2(cams_euc[0], cams_euc[1], xr1, xr2)
@@ -217,12 +238,12 @@ def main(argv):
                 euc_hom = ac.estimate_euc_hom(cams_aff[i], vps[i])
                 Xeuc, cams_euc = rc.transform(euc_hom, Xaff, cams_aff)
 
-            # TODO Add estimated 3d euclidean points to tracks (reuse your code)
+            # add estimated 3d euclidean points to tracks
             tk.add_pts_tracks(Xeuc, x1, x2, i-1, i, tracks, hs_vs)
             if h.debug >= 0:
                 print('  Euclidean 3D points added to tracks')
             
-            # TODO compute metric reprojection error (reuse your code)
+            # compute metric reprojection error
             error_euc = rc.compute_reproj_error(Xeuc, cams_euc[i-1], cams_euc[i], xr1, xr2)
             print(Xeuc.shape)
             if h.debug > 0:
@@ -232,49 +253,34 @@ def main(argv):
                 h.display_3d_points(Xeuc.T[:, :3], x1, imgs_c[i])
 
                 # 3d plot
-                fig = go.Figure()
-                # ut.plot_camera(cams_euc[i-1], imgs[i-1].shape, fig, "camera{0}".format(1))
-                # ut.plot_camera(cams_euc[i], imgs[i].shape, fig, "camera{0}".format(1))
-                ut.display_3d_points_go(Xeuc.T[:, :3], x1, imgs_c[i], fig)
-                fig.show()
+                if debug_go:
+                    fig = go.Figure()
+                    ut.display_3d_points_go(Xeuc.T[:, :3], x1, imgs_c[i], fig)
+                    fig.show()
 
             # Bundle Adjustment
-            # TODO Adapt cameras and 3D points to PySBA format
+            # adapt cameras and 3D points to PySBA format
             cams_ba, X_ba, x_ba, cam_idxs, x_idxs = ba.adapt_format_pysba(tracks, cams_euc)
 
             badj = ba.PySBA(cams_ba, X_ba, x_ba, cam_idxs, x_idxs)
             cams_ba, Xba = badj.bundleAdjust()
-            # Update 3D points and tracks with optimised cameras and points
+
+            # update 3D points and tracks with optimised cameras and points
             tk.update_ba_pts_tracks(Xba, x1, x2, i-1, i, tracks, hs_vs)
             if h.debug >= 0:
                 print("  Bundle Adjustment performed over", i, "images")
 
             # render results
-            #if h.debug_display:
-            h.display_3d_points_2(Xba)
+            if h.debug_display:
+                h.display_3d_points_2(Xba)
+
+                # 3d plot
+                if debug_go:
+                    fig = go.Figure()
+                    ut.display_3d_points_go2(Xba, fig)
+                    fig.show()
 
     if h.debug >= 0:
         print("Structure from Motion applied on sequence of", n, "images")
-
-
-"""
-Optional tasks
-    - Estimate affine homography from the 3 vanishing points and F (Alg. 13.1
-      p332, result 10.3 p271)
-    - Perform Bundle Adjustment over the estimation of the vanishing points and
-      all available images, with PySBA
-
-For more than 2 images: 
-    - Implement the  resection method, as explained in MVG, Alg 7.1
-    - Implement track management for more than 2 images, with tracks structure
-    - Investigate strategies to improve the pipeline:
-            -in results: number of points, reprojection error, camera poses
-            -in implementation: time of computation, resources, etc.
-      Reference papers for improvement strategies: 
-            -J. L. Schönberger and J. Frahm, "Structure-from-Motion Revisited," 2016 IEEE Conference 
-             on Computer Vision and Pattern Recognition (CVPR), Las Vegas, NV, 2016, pp. 4104-4113.
-"""
-
-
 
 main(sys.argv)

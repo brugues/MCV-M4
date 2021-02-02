@@ -71,21 +71,17 @@ def compute_reproj_error(X, P1, P2, xr1, xr2):
 
     return error
 
-
-def transform(aff_hom, Xprj, cams_pr):
+def transform(hom, X, cams_matrix):
     # Algorithm 19.2 of MVG: step (i) (page 479)
-    
-    Xaff = aff_hom@Xprj
-    Xaff = Xaff/Xaff[-1,:]
-    
-    cams_aff = [cam_pri@np.linalg.inv(aff_hom) for cam_pri in cams_pr]
-    
-    #     Xaff = np.linalg.inv(aff_hom)@Xprj
-    #     Xaff = Xaff/Xaff[-1,:]
 
-    #     cams_aff = [cam_pri@aff_hom for cam_pri in cams_pr]
+    Xhom = np.linalg.inv(hom)@X
+    Xhom = Xhom/Xhom[-1,:]
 
-    return Xaff, cams_aff
+    cams_hom = []
+    for cam_i in cams_matrix:
+        cams_hom.append(cam_i@hom)
+
+    return Xhom, cams_hom
 
 
 # Function added by Team 7
@@ -148,7 +144,7 @@ def normalize_points(points, dim='2d'):
 
     return points_norm, T
 
-
+# Function added by Team 7
 def geometric_error_terms(variables, data_points):
     points_2d, points_3d = data_points
     # camera projection matrix
@@ -180,7 +176,8 @@ def resection(tracks, i):
     points_2d, T2d = normalize_points(points_2d, dim='2d')
     points_3d, T3d = normalize_points(points_3d, dim='3d')
 
-    # Apply DLT algorithm to estimate P. We need 6 pairs of points, so that we have 12 equations
+    # Apply DLT algorithm to get an initial estimation of P (P0).
+    # We need 6 pairs of points, so that we have 12 equations
     indices = random.sample(range(1, points_2d.shape[1]), 6)
     A = np.zeros(shape=(len(indices)*2, 12))
     for k, idx in enumerate(indices):
@@ -193,9 +190,11 @@ def resection(tracks, i):
     U, D, VT = np.linalg.svd(A)
     P0 = VT[-1, :].reshape(3, 4)
 
+    # use least squares to find P that minimizes the geometric error
     result = least_squares(geometric_error_terms, P0.flatten(), method='lm', args=([[points_2d[:2,:], points_3d]]))
+    P_min = result.x[:].reshape(3,4)
 
-    P = T2d.T @ result.x[:].reshape(3,4) @ T3d  # Denormalization
+    P = T2d.T @ P_min @ T3d  # Denormalization
     P = P / P[2, 3]
 
     print(P)
